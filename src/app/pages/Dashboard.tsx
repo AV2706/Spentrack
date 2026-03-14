@@ -23,7 +23,9 @@ import confetti from "canvas-confetti";
 import { toast } from "sonner";
 import { PurchaseNotification } from "../components/PurchaseNotification";
 import { MiscSpendingModal } from "../components/MiscSpendingModal";
+import { AdminDebugSMSInput } from "../components/AdminDebugSMSInput";
 import { useCurrency } from "../hooks/useCurrency";
+import { parseAndStoreSMS } from "../lib/smsParser";
 
 export function Dashboard() {
   const currency = useCurrency();
@@ -113,6 +115,26 @@ export function Dashboard() {
   const handlePurchaseContinue = () => {
     setShowPurchaseNotification(false);
     toast.info("Good luck with your purchase!");
+  };
+
+  const handleSimulateSMS = async (text: string) => {
+    const userId = localStorage.getItem("userPhone") || "demo-user";
+    const result = await parseAndStoreSMS(text, userId);
+
+    if (!result.success) {
+      toast.error("SMS parse failed", {
+        description: result.message || "Could not parse simulated SMS.",
+      });
+      return;
+    }
+
+    if (result.parsed?.appName && result.parsed.avgSpend) {
+      handleAppWarning(result.parsed.appName, result.parsed.avgSpend);
+    }
+
+    toast.success("SMS received and parsed", {
+      description: result.message || "The dashboard has been refreshed with simulated SMS data.",
+    });
   };
 
   return (
@@ -437,6 +459,8 @@ export function Dashboard() {
           onAddSpending={handleAddMiscSpending}
         />
       )}
+
+      <AdminDebugSMSInput onSimulateSMS={handleSimulateSMS} />
     </div>
   );
 }
