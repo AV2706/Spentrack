@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Progress } from "../components/ui/progress";
-import { motion } from "motion/react";
+import { motion, useAnimation } from "motion/react";
 import { 
   TrendingDown, 
   TrendingUp, 
@@ -26,7 +26,8 @@ import { MiscSpendingModal } from "../components/MiscSpendingModal";
 import { AdminDebugSMSInput } from "../components/AdminDebugSMSInput";
 import { useCurrency } from "../hooks/useCurrency";
 import { parseAndStoreSMS } from "../lib/smsParser";
-import { generateSpendingFeedback } from "../lib/geminiService";
+import { generateSpendingFeedback, type SpendingContext } from "../lib/geminiService";
+import { useRealtimeBalance } from "../hooks/useRealtimeBalance";
 
 export function Dashboard() {
   const currency = useCurrency();
@@ -37,7 +38,13 @@ export function Dashboard() {
   const [selectedApp, setSelectedApp] = useState<{ name: string; icon: string; avgSpend: number; amount?: number } | null>(null);
   const [showMiscModal, setShowMiscModal] = useState(false);
   const [miscSpendings, setMiscSpendings] = useState<Array<{ id: string; amount: number; description: string; date: Date }>>([]);
-  
+  const [isLowBalanceFlash, setIsLowBalanceFlash] = useState(false);
+  const balanceCardControls = useAnimation();
+
+  useEffect(() => {
+    balanceCardControls.start({ opacity: 1, y: 0, transition: { duration: 0.5 } });
+  }, [balanceCardControls]);
+
   const recentTransactions = mockTransactions.slice(0, 5);
   const weeklySpent = 464.63;
   const weeklyBudget = 600;
@@ -52,6 +59,36 @@ export function Dashboard() {
       });
     }
   }, [currentBalance, balanceThreshold, currency]);
+
+  const triggerLowBalanceAlert = async (newBalance: number) => {
+    setIsLowBalanceFlash(true);
+    await balanceCardControls.start({
+      x: [0, -14, 14, -10, 10, -6, 6, 0],
+      transition: { duration: 0.6, ease: "easeInOut" },
+    });
+    setIsLowBalanceFlash(false);
+    toast.error("⚠️ Low Balance Alert", {
+      description: `A new transaction dropped your balance to ${currency}${newBalance.toFixed(2)} — below your ${currency}${balanceThreshold} threshold!`,
+      duration: 6000,
+    });
+  };
+
+  useRealtimeBalance({
+    onNewTransaction: (row) => {
+      if (!row.amount) return;
+      setCurrentBalance((prev) => {
+        const next = Math.max(0, prev - row.amount!);
+        if (next < balanceThreshold) {
+          triggerLowBalanceAlert(next);
+        } else {
+          toast.info(`💳 New transaction: −${currency}${row.amount!.toFixed(2)}${
+            row.merchant ? ` at ${row.merchant}` : ""
+          }`, { duration: 4000 });
+        }
+        return next;
+      });
+    },
+  });
 
   const handleGoodChoice = () => {
     setShowEncouragement(true);
@@ -112,28 +149,30 @@ export function Dashboard() {
     setShowPurchaseNotification(false);
     handleGoodChoice();
     if (selectedApp) {
-      try {
-        const msg = await generateSpendingFeedback(
-          selectedApp.name,
-          selectedApp.amount ?? selectedApp.avgSpend,
-          "toast"
-        );
-        toast.success(`🥂 ${msg}`, { duration: 6000 });
-      } catch {
-        // Gemini unavailable — encouragement already shown
-      }
+      const ctx: SpendingContext = {
+        amount: selectedApp.amount ?? selectedApp.avgSpend,
+        avgSpend: selectedApp.avgSpend,
+        currentBalance,
+        weeklySpent,
+        weeklyBudget,
+      };
+      const msg = await generateSpendingFeedback(selectedApp.name, ctx, "toast");
+      toast.success(`🥂 ${msg}`, { duration: 6000 });
     }
   };
 
   const handlePurchaseContinue = async () => {
     setShowPurchaseNotification(false);
     if (selectedApp) {
-      const msg = await generateSpendingFeedback(
-        selectedApp.name,
-        selectedApp.amount ?? selectedApp.avgSpend,
-        "roast"
-      );
-      toast.warning(`🔥 ${msg}`, { duration: 6000 });
+      const ctx: SpendingContext = {
+        amount: selectedApp.amount ?? selectedApp.avgSpend,
+        avgSpend: selectedApp.avgSpend,
+        currentBalance,
+        weeklySpent,
+        weeklyBudget,
+      };
+      const msg = await generateSpendingFeedback(selectedApp.name, ctx, "roast");
+      toast.warning(`🔥 ${msg}`, { duration: 10000 });
     } else {
       toast.info("Good luck with your purchase!");
     }
@@ -164,10 +203,13 @@ export function Dashboard() {
       {/* Balance Card */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
+        animate={balanceCardControls}
       >
-        <Card className="bg-gradient-to-br from-emerald-500 to-teal-600 border-0 text-white shadow-xl">
+        <Card className={`border-0 text-white shadow-xl transition-all duration-300 ${
+          isLowBalanceFlash
+            ? "bg-gradient-to-br from-red-500 to-rose-600 ring-4 ring-red-300"
+            : "bg-gradient-to-br from-emerald-500 to-teal-600"
+        }`}>
           <CardHeader>
             <CardDescription className="text-emerald-100">Current Balance</CardDescription>
             <CardTitle className="text-4xl font-bold">
@@ -453,25 +495,31 @@ export function Dashboard() {
               <Sparkles className="w-4 h-4 mr-2" />
               I'll Save Instead!
             </Button>
-            <Button variant="outline" className="w-full">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                if (highSpendApps[0]) {
+                  handleAppWarning(highSpendApps[0].name, highSpendApps[0].avgSpend);
+                }
+              }}
+            >
               I Really Need This
             </Button>
           </CardContent>
         </Card>
       </motion.div>
 
-      {/* Purchase Notification */}
-      {showPurchaseNotification && selectedApp && (
-        <PurchaseNotification
-          isOpen={showPurchaseNotification}
-          appName={selectedApp.name}
-          appIcon={selectedApp.icon}
-          avgSpend={selectedApp.avgSpend}
-          onClose={() => setShowPurchaseNotification(false)}
-          onSave={handlePurchaseSave}
-          onContinue={handlePurchaseContinue}
-        />
-      )}
+      {/* Purchase Notification - rendered outside page flow so it always overlays */}
+      <PurchaseNotification
+        isOpen={showPurchaseNotification && !!selectedApp}
+        appName={selectedApp?.name ?? ""}
+        appIcon={selectedApp?.icon ?? "💰"}
+        avgSpend={selectedApp?.avgSpend ?? 0}
+        onClose={() => setShowPurchaseNotification(false)}
+        onSave={handlePurchaseSave}
+        onContinue={handlePurchaseContinue}
+      />
 
       {/* Misc Spending Modal */}
       {showMiscModal && (
