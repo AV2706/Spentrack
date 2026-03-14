@@ -26,6 +26,7 @@ import { MiscSpendingModal } from "../components/MiscSpendingModal";
 import { AdminDebugSMSInput } from "../components/AdminDebugSMSInput";
 import { useCurrency } from "../hooks/useCurrency";
 import { parseAndStoreSMS } from "../lib/smsParser";
+import { generateSpendingFeedback } from "../lib/geminiService";
 
 export function Dashboard() {
   const currency = useCurrency();
@@ -33,7 +34,7 @@ export function Dashboard() {
   const [balanceThreshold, setBalanceThreshold] = useState(500);
   const [showEncouragement, setShowEncouragement] = useState(false);
   const [showPurchaseNotification, setShowPurchaseNotification] = useState(false);
-  const [selectedApp, setSelectedApp] = useState<{ name: string; icon: string; avgSpend: number } | null>(null);
+  const [selectedApp, setSelectedApp] = useState<{ name: string; icon: string; avgSpend: number; amount?: number } | null>(null);
   const [showMiscModal, setShowMiscModal] = useState(false);
   const [miscSpendings, setMiscSpendings] = useState<Array<{ id: string; amount: number; description: string; date: Date }>>([]);
   
@@ -67,9 +68,9 @@ export function Dashboard() {
     setTimeout(() => setShowEncouragement(false), 3000);
   };
 
-  const handleAppWarning = (appName: string, avgSpend: number) => {
+  const handleAppWarning = (appName: string, avgSpend: number, amount?: number) => {
     const app = highSpendApps.find(a => a.name === appName);
-    setSelectedApp({ name: appName, icon: app?.icon || '💰', avgSpend: avgSpend });
+    setSelectedApp({ name: appName, icon: app?.icon || '💰', avgSpend, amount });
     setShowPurchaseNotification(true);
   };
 
@@ -107,14 +108,35 @@ export function Dashboard() {
     }, 500);
   };
 
-  const handlePurchaseSave = () => {
+  const handlePurchaseSave = async () => {
     setShowPurchaseNotification(false);
     handleGoodChoice();
+    if (selectedApp) {
+      try {
+        const msg = await generateSpendingFeedback(
+          selectedApp.name,
+          selectedApp.amount ?? selectedApp.avgSpend,
+          "toast"
+        );
+        toast.success(`🥂 ${msg}`, { duration: 6000 });
+      } catch {
+        // Gemini unavailable — encouragement already shown
+      }
+    }
   };
 
-  const handlePurchaseContinue = () => {
+  const handlePurchaseContinue = async () => {
     setShowPurchaseNotification(false);
-    toast.info("Good luck with your purchase!");
+    if (selectedApp) {
+      const msg = await generateSpendingFeedback(
+        selectedApp.name,
+        selectedApp.amount ?? selectedApp.avgSpend,
+        "roast"
+      );
+      toast.warning(`🔥 ${msg}`, { duration: 6000 });
+    } else {
+      toast.info("Good luck with your purchase!");
+    }
   };
 
   const handleSimulateSMS = async (text: string) => {
@@ -129,7 +151,7 @@ export function Dashboard() {
     }
 
     if (result.parsed?.appName && result.parsed.avgSpend) {
-      handleAppWarning(result.parsed.appName, result.parsed.avgSpend);
+      handleAppWarning(result.parsed.appName, result.parsed.avgSpend, result.parsed.amount);
     }
 
     toast.success("SMS received and parsed", {
