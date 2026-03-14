@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { mockTransactions, type Transaction } from "../lib/mockData";
 
-const TRANSACTIONS_STORAGE_KEY = "spentrack:transactions";
-const TRANSACTIONS_UPDATED_EVENT = "spentrack:transactions-updated";
+export const TRANSACTIONS_STORAGE_KEY = "spentrack:transactions";
+export const TRANSACTIONS_UPDATED_EVENT = "spentrack:transactions-updated";
 const DUPLICATE_WINDOW_MS = 15 * 1000;
 
 interface StoredTransaction extends Omit<Transaction, "date"> {
@@ -197,6 +197,26 @@ function appendLiveTransaction(input: LiveTransactionInput): LiveTransactionMuta
     transaction,
     isDuplicate: false,
   };
+}
+
+export function initializeTransactionsForNewAccount(initialBalance: number) {
+  const normalizedBalance = Number(initialBalance);
+  if (!Number.isFinite(normalizedBalance) || normalizedBalance < 0) {
+    return;
+  }
+
+  const openingTransaction: Transaction = {
+    id: `opening-${Date.now()}`,
+    date: new Date(),
+    merchant: "Opening Balance",
+    amount: Number(normalizedBalance.toFixed(2)),
+    category: "Income",
+    balance: Number(normalizedBalance.toFixed(2)),
+    type: "credit",
+  };
+
+  saveTransactions([openingTransaction]);
+  dispatchTransactionsUpdated();
 }
 
 export function useLiveTransactions() {

@@ -4,6 +4,8 @@ import { Logo } from "../components/Logo";
 import { motion } from "motion/react";
 import { ArrowLeft, Phone, DollarSign, Check } from "lucide-react";
 import { toast } from "sonner";
+import { DEFAULT_FINANCIAL_SETTINGS, saveFinancialSettings } from "../lib/financialSettings";
+import { initializeTransactionsForNewAccount } from "../hooks/useLiveTransactions";
 
 const currencies = [
   { code: "USD", symbol: "$", name: "US Dollar" },
@@ -22,13 +24,29 @@ export function SignUp() {
   const navigate = useNavigate();
   const [phoneNumber, setPhoneNumber] = useState("");
   const [selectedCurrency, setSelectedCurrency] = useState("USD");
+  const [initialBalance, setInitialBalance] = useState("");
+  const [weeklyBudget, setWeeklyBudget] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  const selectedCurrencyMeta = currencies.find((currency) => currency.code === selectedCurrency) ?? currencies[0];
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    const parsedInitialBalance = Number(initialBalance);
+    const parsedWeeklyBudget = Number(weeklyBudget);
     
     if (!phoneNumber || phoneNumber.length < 10) {
       toast.error("Please enter a valid phone number");
+      return;
+    }
+
+    if (!initialBalance || Number.isNaN(parsedInitialBalance) || parsedInitialBalance < 0) {
+      toast.error("Please enter a valid starting balance");
+      return;
+    }
+
+    if (!weeklyBudget || Number.isNaN(parsedWeeklyBudget) || parsedWeeklyBudget <= 0) {
+      toast.error("Please enter a valid weekly budget");
       return;
     }
 
@@ -36,10 +54,29 @@ export function SignUp() {
     
     // Simulate API call
     setTimeout(() => {
-      toast.success("Account created successfully!");
-      // Store user preferences (in a real app, this would be in backend/localStorage)
+      const derivedBalanceThreshold = Number(
+        Math.min(
+          DEFAULT_FINANCIAL_SETTINGS.balanceThreshold,
+          parsedInitialBalance * 0.25
+        ).toFixed(2)
+      );
+
+      saveFinancialSettings({
+        balanceThreshold: derivedBalanceThreshold,
+        weeklyBudget: Number(parsedWeeklyBudget.toFixed(2)),
+        monthlyBudget: Number((parsedWeeklyBudget * 4).toFixed(2)),
+        hourlyWage: DEFAULT_FINANCIAL_SETTINGS.hourlyWage,
+      });
+
       localStorage.setItem("userCurrency", selectedCurrency);
       localStorage.setItem("userPhone", phoneNumber);
+      localStorage.removeItem("spentrack:simulated-sms");
+      initializeTransactionsForNewAccount(parsedInitialBalance);
+
+      toast.success("Account created successfully!", {
+        description: `Starting balance ${selectedCurrencyMeta.symbol}${parsedInitialBalance.toFixed(2)} and weekly budget ${selectedCurrencyMeta.symbol}${parsedWeeklyBudget.toFixed(2)} saved.`,
+      });
+
       setIsLoading(false);
       navigate("/dashboard");
     }, 1500);
@@ -113,6 +150,54 @@ export function SignUp() {
                 ))}
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Starting Balance
+            </label>
+            <div className="relative">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">
+                {selectedCurrencyMeta.symbol}
+              </div>
+              <input
+                type="number"
+                value={initialBalance}
+                onChange={(e) => setInitialBalance(e.target.value)}
+                placeholder="1250.45"
+                min="0"
+                step="0.01"
+                className="w-full pl-12 pr-4 py-4 border-2 border-slate-200 rounded-xl focus:border-emerald-500 focus:outline-none transition-colors"
+                required
+              />
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              This becomes the balance shown when your dashboard opens for the first time.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Weekly Budget
+            </label>
+            <div className="relative">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">
+                {selectedCurrencyMeta.symbol}
+              </div>
+              <input
+                type="number"
+                value={weeklyBudget}
+                onChange={(e) => setWeeklyBudget(e.target.value)}
+                placeholder="600.00"
+                min="0.01"
+                step="0.01"
+                className="w-full pl-12 pr-4 py-4 border-2 border-slate-200 rounded-xl focus:border-emerald-500 focus:outline-none transition-colors"
+                required
+              />
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              We'll use this to power your budget warnings and spending insights.
+            </p>
           </div>
 
           {/* SMS Permission Notice */}

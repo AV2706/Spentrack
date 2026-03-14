@@ -21,7 +21,7 @@ export const DEFAULT_FINANCIAL_SETTINGS: FinancialSettings = {
   hourlyWage: 20,
 };
 
-function readNumberSetting(key: string, fallback: number): number {
+function readNumberSetting(key: string, fallback: number, allowZero = false): number {
   if (typeof window === "undefined") {
     return fallback;
   }
@@ -32,7 +32,8 @@ function readNumberSetting(key: string, fallback: number): number {
   }
 
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  const isBelowMinimum = allowZero ? parsed < 0 : parsed <= 0;
+  if (!Number.isFinite(parsed) || isBelowMinimum) {
     return fallback;
   }
 
@@ -43,7 +44,8 @@ export function getFinancialSettings(): FinancialSettings {
   return {
     balanceThreshold: readNumberSetting(
       FINANCIAL_SETTING_KEYS.balanceThreshold,
-      DEFAULT_FINANCIAL_SETTINGS.balanceThreshold
+      DEFAULT_FINANCIAL_SETTINGS.balanceThreshold,
+      true
     ),
     weeklyBudget: readNumberSetting(
       FINANCIAL_SETTING_KEYS.weeklyBudget,
